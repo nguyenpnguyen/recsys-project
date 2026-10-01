@@ -44,7 +44,7 @@ cd training
 
 ## Demo inference
 
-Cần output của training trong `inference/artifacts/`:
+Cần output của training trong `inference/artifacts/` (tải từ Hugging Face Hub sau khi cài môi trường, hoặc tự train):
 
 ```
 inference/artifacts/news_emb.npz
@@ -54,8 +54,9 @@ inference/artifacts/v10_final/{results.json, config.json, *.png, models/<name>/.
 ```bash
 uv venv --python 3.12 inference/.venv
 uv pip install --python inference/.venv/bin/python -r inference/requirements.txt
+inference/.venv/bin/hf download nguyenpn/recsys-artifacts --local-dir inference/artifacts
 inference/.venv/bin/python -m streamlit run inference/demo_app.py --server.address 127.0.0.1
 cd inference && .venv/bin/python -m unittest test_demo.py   # test
 ```
 
-Chạy trên CPU, không cần mạng. Đặc tả chi tiết xem `inference/PLAN_DEMO_V10.md`.
+Sau khi tải artifact, demo chạy trên CPU, không cần mạng. Đặc tả chi tiết xem `inference/PLAN_DEMO_V10.md`.
