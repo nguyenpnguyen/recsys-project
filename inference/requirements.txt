@@ -1,0 +1,4 @@
+# Python 3.12
+numpy==2.5.3
+torch==2.14.0
+streamlit==1.64.0

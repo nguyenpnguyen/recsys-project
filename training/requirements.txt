@@ -1,0 +1,6 @@
+# Python 3.12 — local runs only; Kaggle image already ships these.
+numpy==2.5.3
+torch==2.14.0
+matplotlib==3.11.2
+sentence-transformers==6.1.0
+ipykernel==7.4.0
