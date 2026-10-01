@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 import metrics
 from data import MindData, iter_batches, _eval_parts
-from models import BASELINE_MODELS, FINAL_MODELS, REGISTRY, build_model
+from models import BASELINE_MODELS, FINAL_MODELS, HEURISTIC_MODELS, REGISTRY, build_model
 
 
 @dataclass
@@ -58,12 +58,13 @@ def save_state_atomic(state, path):
 
 
 def train_model(model, data, cfg, device, model_dir):
-    model.to(device); opt = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+    model.to(device); trainable = params(model) > 0  # heuristic baselines: one validation pass, no optimisation
+    opt = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay) if trainable else None
     steps = math.ceil(len(data.train_core) / cfg.batch_size); history = []; best = None; stale = 0; step = 0; t0 = time.perf_counter()
     best_path = model_dir / "best.pt"
     for epoch in range(1, cfg.max_epochs + 1):
         model.train(); total, batches = 0., 0; epoch_t = time.perf_counter()
-        for batch in iter_batches(data.train_core, cfg.batch_size, data.collate_train, shuffle=True, seed=cfg.seed + epoch):
+        for batch in (iter_batches(data.train_core, cfg.batch_size, data.collate_train, shuffle=True, seed=cfg.seed + epoch) if trainable else ()):
             batch = batch.to(device); logits = model.score(batch); target = torch.zeros(logits.size(0), dtype=torch.long, device=device)
             rank_loss = F.cross_entropy(logits, target)
             aux_loss = model.extra_loss(batch) if hasattr(model, "extra_loss") else 0.
@@ -76,7 +77,7 @@ def train_model(model, data, cfg, device, model_dir):
         if improved: best, stale = dict(rec), 0; save_state_atomic(model.state_dict(), best_path)
         elif epoch >= cfg.min_epochs: stale += 1
         print(f"  epoch {epoch:02d} step={step:,} loss={rec['train_loss']:.4f} val_auc={rec['val_auc']:.4f} val_ndcg@10={rec['val_ndcg@10']:.4f}")
-        if epoch >= cfg.min_epochs and stale >= cfg.patience: break
+        if not trainable or (epoch >= cfg.min_epochs and stale >= cfg.patience): break
     if best is None: raise RuntimeError("no best checkpoint")
     return history, time.perf_counter() - t0, steps, best
 
@@ -91,6 +92,7 @@ def params(model): return sum(p.numel() for p in model.parameters() if p.require
 def group(name):
     if name in BASELINE_MODELS: return "baseline"
     if name == "llmenc_ca": return "llm-experiment"
+    if name in HEURISTIC_MODELS: return "no-training"
     if name == "supermodel": return "proposed"
     return "super-ablation"
 
@@ -152,7 +154,7 @@ def verify(out_dir):
     for filename in ("config.json", "split.json", "results.json", "results.md", "history.json", "val_auc_vs_epoch.png", "val_ndcg10_vs_epoch.png"):
         assert (out_dir / filename).exists() and (out_dir / filename).stat().st_size > 0, f"missing artifact: {out_dir / filename}"
     results = json.loads((out_dir / "results.json").read_text()); history = json.loads((out_dir / "history.json").read_text())
-    assert len(results["rows"]) == 12 and {r["model"] for r in results["rows"]} == set(FINAL_MODELS)
+    assert len(results["rows"]) == len(FINAL_MODELS) and {r["model"] for r in results["rows"]} == set(FINAL_MODELS)
     assert all(r["test_ndcg@10"] >= results["rows"][i + 1]["test_ndcg@10"] for i, r in enumerate(results["rows"][:-1]))
     assert set(history["models"]) == set(FINAL_MODELS)
     split = json.loads((out_dir / "split.json").read_text())
@@ -171,7 +173,7 @@ def verify(out_dir):
         for m in ("auc", "mrr", "ndcg@5", "ndcg@10"):
             assert np.isclose(recomputed[m], test_meta[m], atol=1e-6), f"{name}: {m} mismatch"
         print(f"✅ verified {name}")
-    print("✅ V10: 12 rows, chronological split, epoch curves, and checkpoint/test artifacts verified")
+    print(f"✅ V10: {len(FINAL_MODELS)} rows, chronological split, epoch curves, and checkpoint/test artifacts verified")
     print((out_dir / "results.md").read_text())
 
 

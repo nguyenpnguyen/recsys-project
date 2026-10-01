@@ -153,6 +153,39 @@ class LLMEncCA(nn.Module):
         return (user * cand).sum(-1)
 
 
+def _znorm(x, mask):
+    """Standardise scores within each impression, using only real candidates."""
+    n = mask.sum(-1, keepdim=True).clamp(min=1)
+    mu = (x * mask).sum(-1, keepdim=True) / n
+    sd = (((x - mu) * mask) ** 2).sum(-1, keepdim=True).div(n).sqrt()
+    return (x - mu) / (sd + 1e-6)
+
+
+class Popularity(nn.Module):
+    """No training: online smoothed log-CTR of each candidate (non-personalised)."""
+    def __init__(self, d, cfg): super().__init__()
+
+    def score(self, b): return b.cand_pop
+
+
+class BGEZeroShot(nn.Module):
+    """No training: dot product of candidate BGE with the mean BGE of the clicked history."""
+    def __init__(self, d, cfg):
+        super().__init__(); self.register_buffer("emb", torch.from_numpy(d.llm_emb), persistent=False)
+
+    def score(self, b):
+        m = b.hist_mask.unsqueeze(-1).float()
+        user = (self.emb[b.hist_idx] * m).sum(1) / m.sum(1).clamp(min=1)
+        return torch.einsum("bd,bcd->bc", user, self.emb[b.cand_idx])
+
+
+class BGEZeroShotPop(BGEZeroShot):
+    """No training: equal-weight sum of standardised BGE zero-shot and popularity scores."""
+    def score(self, b):
+        m = b.cand_mask.float()
+        return _znorm(super().score(b), m) + _znorm(b.cand_pop, m)
+
+
 class CAUM(nn.Module):
     """Candidate-aware user attention baseline."""
     def __init__(self, d, cfg):
@@ -270,11 +303,13 @@ REGISTRY = {
     "super_no_diff": SuperNoDiff, "super_no_ca": SuperNoCA,
     "super_no_graph": SuperNoGraph, "super_no_cl": SuperNoCL,
     "super_no_bge": SuperNoBGE,
+    "popularity": Popularity, "bge_zeroshot": BGEZeroShot, "bge_zs_pop": BGEZeroShotPop,
 }
 BASELINE_MODELS = ["nrms", "naml", "fastformer", "caum", "lightgcn"]
 LLM_MODELS = ["llmenc_ca"]
 SUPERMODEL_MODELS = ["supermodel", "super_no_diff", "super_no_ca", "super_no_graph", "super_no_cl", "super_no_bge"]
-FINAL_MODELS = BASELINE_MODELS + LLM_MODELS + SUPERMODEL_MODELS
+HEURISTIC_MODELS = ["popularity", "bge_zeroshot", "bge_zs_pop"]
+FINAL_MODELS = BASELINE_MODELS + LLM_MODELS + SUPERMODEL_MODELS + HEURISTIC_MODELS
 
 
 def build_model(name, data, cfg):

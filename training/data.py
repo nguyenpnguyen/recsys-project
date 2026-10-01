@@ -1,7 +1,10 @@
 """Self-contained MIND-small data reader with chronological validation split."""
 from __future__ import annotations
 
+import math
 import random
+from collections import Counter
+from itertools import groupby
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -23,6 +26,7 @@ class Batch:
     cand_mask: torch.Tensor
     user_idx: torch.Tensor
     labels: torch.Tensor
+    cand_pop: torch.Tensor
 
     def to(self, device):
         for name in self.__dataclass_fields__:
@@ -84,7 +88,8 @@ class MindData:
             ui[b] = user
         return _to_batch(ht, hc, hi, hm, ct, cc, ci,
                          np.ones((B, C), bool), ui,
-                         np.pad(np.ones((B, 1), np.float32), ((0, 0), (0, C - 1))))
+                         np.pad(np.ones((B, 1), np.float32), ((0, 0), (0, C - 1))),
+                         np.zeros((B, C), np.float32))  # ponytail: no popularity for train rows, add when a trained model consumes cand_pop
 
     def collate_eval(self, rows):
         H, L = self.max_hist, self.title_len
@@ -98,18 +103,19 @@ class MindData:
         ci = np.zeros((B, C), np.int64)
         cm = np.zeros((B, C), bool)
         labels = np.zeros((B, C), np.float32)
+        cp = np.zeros((B, C), np.float32)
         ui = np.zeros(B, np.int64)
         for b, row in enumerate(rows):
-            _, user, hist, cands, labs = _eval_parts(row)
+            _, user, hist, cands, labs, pop = _eval_parts(row)
             h, m = self._pad_hist(hist)
             hi[b], hm[b] = h, m
             ht[b], hc[b] = self._gather(h)
             n = len(cands)
-            ci[b, :n], cm[b, :n], labels[b, :n] = cands, True, labs
+            ci[b, :n], cm[b, :n], labels[b, :n], cp[b, :n] = cands, True, labs, pop
             if n:
                 ct[b, :n], cc[b, :n] = self._gather(cands)
             ui[b] = user
-        return _to_batch(ht, hc, hi, hm, ct, cc, ci, cm, ui, labels)
+        return _to_batch(ht, hc, hi, hm, ct, cc, ci, cm, ui, labels, cp)
 
     def build_adjacency(self):
         U, N = self.n_users, self.n_news
@@ -197,14 +203,14 @@ class MindData:
                 uid_map[uid] = len(uid_map)
             return uid_map[uid]
 
-        def day_of(value):
+        def time_of(value):
             value = value.strip()
             for fmt in ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %I:%M:%S %p", "%Y-%m-%d %H:%M:%S"):
                 try:
-                    return datetime.strptime(value, fmt).date().isoformat()
+                    return datetime.strptime(value, fmt)
                 except ValueError:
                     pass
-            return value.split(" ")[0]
+            raise ValueError(f"unparseable impression time: {value!r}")
 
         def read_behaviors(path):
             out = []
@@ -221,7 +227,8 @@ class MindData:
                         if nid in nid_map:
                             cands.append(nid_map[nid])
                             labs.append(int(lab))
-                    out.append((str(impr_id), uidx(user_raw), hist, cands, labs, day_of(timestamp)))
+                    t = time_of(timestamp)
+                    out.append((str(impr_id), uidx(user_raw), hist, cands, labs, t.date().isoformat(), t))
             return out
 
         train_raw = read_behaviors(os.path.join(train_dir, "behaviors.tsv"))
@@ -230,6 +237,9 @@ class MindData:
         test_raw = read_behaviors(os.path.join(dev_dir, "behaviors.tsv"))
         if not train_raw or not test_raw:
             raise ValueError("MIND behaviors files are empty")
+        pop = _online_log_ctr(train_raw + test_raw)
+        train_raw = [r + (p,) for r, p in zip(train_raw, pop)]
+        test_raw = [r + (p,) for r, p in zip(test_raw, pop[len(train_raw):])]
 
         days = sorted({row[5] for row in train_raw})
         target = max(1, int(np.ceil(len(train_raw) * dev_ratio)))
@@ -245,9 +255,9 @@ class MindData:
             raise ValueError("day split leaves no train_core day")
         train_raw_core = [r for r in train_raw if r[5] not in set(val_days)]
         val_raw = [r for r in train_raw if r[5] in set(val_days)]
-        train_core_beh = [(u, h, c, labs) for _, u, h, c, labs, _ in train_raw_core]
-        validation = [(i, u, h, c, labs) for i, u, h, c, labs, _ in val_raw]
-        test = [(i, u, h, c, labs) for i, u, h, c, labs, _ in test_raw]
+        train_core_beh = [(u, h, c, labs) for _, u, h, c, labs, *_ in train_raw_core]
+        validation = [(i, u, h, c, labs, p) for i, u, h, c, labs, _, _, p in val_raw]
+        test = [(i, u, h, c, labs, p) for i, u, h, c, labs, _, _, p in test_raw]
         if max(r[5] for r in train_raw_core) >= min(r[5] for r in val_raw):
             raise AssertionError("chronological train/validation ordering violated")
 
@@ -283,16 +293,33 @@ class MindData:
                    split_info["test_days"], split_info, edges)
 
 
+def _online_log_ctr(rows):
+    """Smoothed log-CTR of every candidate, counted only from impressions strictly earlier in time.
+
+    Impressions sharing a timestamp are scored before any of them is counted, so no label leaks.
+    """
+    clicks, shown, out = Counter(), Counter(), [None] * len(rows)
+    order = sorted(range(len(rows)), key=lambda k: rows[k][6])
+    for _, group in groupby(order, key=lambda k: rows[k][6]):
+        group = list(group)
+        for k in group:
+            out[k] = [math.log((clicks[n] + 1) / (shown[n] + 20)) for n in rows[k][3]]
+        for k in group:
+            for n, y in zip(rows[k][3], rows[k][4]):
+                shown[n] += 1
+                clicks[n] += y
+    return out
+
+
 def _eval_parts(row):
-    if len(row) == 5:
+    if len(row) == 6:
         return row
     user, hist, cands, labs = row
-    return "", user, hist, cands, labs
+    return "", user, hist, cands, labs, [0.0] * len(cands)
 
 
 def _to_batch(*arrays):
-    ht, hc, hi, hm, ct, cc, ci, cm, ui, labels = arrays
-    return Batch(*(torch.from_numpy(x) for x in (ht, hc, hi, hm, ct, cc, ci, cm, ui, labels)))
+    return Batch(*(torch.from_numpy(x) for x in arrays))
 
 
 def iter_batches(rows, batch_size, collate, shuffle=False, seed=0):

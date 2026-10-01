@@ -1,6 +1,6 @@
 # Gợi ý tin tức trên MIND-small (V10)
 
-Benchmark 12 mô hình gợi ý tin tức trên MIND-small: 5 baseline (NRMS, NAML, Fastformer, CAUM, LightGCN), LLMEncCA (news encoder BGE-small-en-v1.5), Supermodel và 5 biến thể ablation. Tập validation được tách theo ngày từ `MINDsmall_train`; `MINDsmall_dev` chỉ dùng một lần làm tập test, sau khi nạp checkpoint tốt nhất của từng model (chọn theo nDCG@10 trên validation).
+Benchmark 15 mô hình gợi ý tin tức trên MIND-small: 5 baseline (NRMS, NAML, Fastformer, CAUM, LightGCN), LLMEncCA (news encoder BGE-small-en-v1.5), Supermodel, 5 biến thể ablation và 3 model không cần train (`popularity`: CTR online đã làm trơn, chỉ đếm từ impression trước đó; `bge_zeroshot`: độ giống BGE giữa candidate và trung bình history; `bge_zs_pop`: tổng hai điểm trên sau chuẩn hoá). Tập validation được tách theo ngày từ `MINDsmall_train`; `MINDsmall_dev` chỉ dùng một lần làm tập test, sau khi nạp checkpoint tốt nhất của từng model (chọn theo nDCG@10 trên validation).
 
 ```
 training/    script train + đánh giá, notebook chạy trên Kaggle

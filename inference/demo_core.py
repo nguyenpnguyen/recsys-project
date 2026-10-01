@@ -157,8 +157,8 @@ def load_demo_data(root: Path = PROJECT_ROOT) -> DemoData:
         raise DemoDataError(f"Không đọc được metadata kết quả V10: {exc}") from exc
     model_names = tuple(results.get("models", ()))
     result_rows = tuple(results.get("rows", ()))
-    if len(model_names) != 12 or {row.get("model") for row in result_rows} != set(model_names):
-        raise DemoDataError("results.json không chứa đủ 12 model V10")
+    if not model_names or {row.get("model") for row in result_rows} != set(model_names):
+        raise DemoDataError("results.json không chứa đủ model V10")
     return DemoData(root, news, news_ids, news_index, impressions,
                     {row.impression_id: row for row in impressions},
                     result_rows, model_names, config)
