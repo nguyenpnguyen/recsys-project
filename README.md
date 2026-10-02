@@ -32,6 +32,16 @@ cd training
     --news-emb ../inference/artifacts/news_emb.npz --out ../inference/artifacts/v10_final
 ```
 
+Notebook cũng benchmark lại các model dùng embedding (`llmenc_ca`, `supermodel`, `bge_zeroshot`, `bge_zs_pop`) với `Qwen/Qwen3-Embedding-0.6B`, ghi ra `news_emb_qwen3.npz` và `v10_qwen3/`. Chạy local:
+
+```bash
+.venv/bin/python llm_embed.py --news ../dataset/MINDsmall_train/news.tsv ../dataset/MINDsmall_dev/news.tsv \
+    --model Qwen/Qwen3-Embedding-0.6B --batch-size 32 --out ../inference/artifacts/news_emb_qwen3.npz
+.venv/bin/python bench.py --mind-train ../dataset/MINDsmall_train --mind-dev ../dataset/MINDsmall_dev \
+    --news-emb ../inference/artifacts/news_emb_qwen3.npz --out ../inference/artifacts/v10_qwen3 \
+    --models llmenc_ca supermodel bge_zeroshot bge_zs_pop
+```
+
 Cell cuối của notebook upload `news_emb.npz` và `v10_final/` lên Hugging Face Hub (`nguyenpn/recsys-artifacts`). Trên Kaggle thêm Secret `HF_TOKEN` (quyền write); local chạy `hf auth login` trước. Upload thủ công:
 
 ```bash

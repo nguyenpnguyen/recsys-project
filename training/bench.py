@@ -119,14 +119,14 @@ def plot(histories, out_dir):
 def main(argv=None):
     ap = argparse.ArgumentParser(); ap.add_argument("--source", choices=["mind"], default="mind"); ap.add_argument("--mind-train"); ap.add_argument("--mind-dev"); ap.add_argument("--news-emb", required=True); ap.add_argument("--dev-ratio", type=float, default=.1); ap.add_argument("--models", nargs="+", default=FINAL_MODELS); ap.add_argument("--max-epochs", type=int, default=12); ap.add_argument("--min-epochs", type=int, default=3); ap.add_argument("--patience", type=int, default=2); ap.add_argument("--min-delta", type=float, default=.001); ap.add_argument("--dim", type=int, default=64); ap.add_argument("--heads", type=int, default=2); ap.add_argument("--gcn-layers", type=int, default=2); ap.add_argument("--cl-tau", type=float, default=.1); ap.add_argument("--cl-weight", type=float, default=.1); ap.add_argument("--dropout", type=float, default=.2); ap.add_argument("--lr", type=float, default=1e-3); ap.add_argument("--weight-decay", type=float, default=1e-5); ap.add_argument("--batch-size", type=int, default=64); ap.add_argument("--eval-batch", type=int, default=32); ap.add_argument("--seed", type=int, default=0); ap.add_argument("--out", default="results/v10_final"); args = ap.parse_args(argv)
     if not args.mind_train or not args.mind_dev or os.path.abspath(args.mind_train) == os.path.abspath(args.mind_dev): raise ValueError("provide separate MINDsmall_train and MINDsmall_dev")
-    if set(args.models) != set(FINAL_MODELS) or len(args.models) != len(FINAL_MODELS): raise ValueError("V10 must run exactly FINAL_MODELS")
+    if not set(args.models) <= set(FINAL_MODELS) or len(set(args.models)) != len(args.models): raise ValueError("models must be distinct FINAL_MODELS")
     random.seed(args.seed); np.random.seed(args.seed); torch.manual_seed(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     z = np.load(args.news_emb, allow_pickle=True); emb = {(i.decode() if isinstance(i, bytes) else str(i)): v for i, v in zip(z["ids"], z["vecs"])}
     data = MindData.from_mind(args.mind_train, args.mind_dev, llm_embeddings=emb, dev_ratio=args.dev_ratio, seed=args.seed)
     cfg = Cfg(dim=args.dim, dropout=args.dropout, heads=args.heads, gcn_layers=args.gcn_layers, seed=args.seed, cl_tau=args.cl_tau, cl_weight=args.cl_weight, lr=args.lr, weight_decay=args.weight_decay, max_epochs=args.max_epochs, min_epochs=args.min_epochs, patience=args.patience, min_delta=args.min_delta, batch_size=args.batch_size, eval_batch_size=args.eval_batch)
     out_dir = Path(args.out); out_dir.mkdir(parents=True, exist_ok=True); models_dir = out_dir / "models"; models_dir.mkdir(exist_ok=True)
-    config = {"models": list(args.models), "seed": args.seed, "bge_model": "BAAI/bge-small-en-v1.5", "dataset": "MIND-small", "input_text": "title + abstract", "monitor": "ndcg@10", "early_stopping": vars(cfg)}; (out_dir / "config.json").write_text(json.dumps(config, indent=2))
+    config = {"models": list(args.models), "seed": args.seed, "bge_model": str(z["model_name"]), "dataset": "MIND-small", "input_text": "title + abstract", "monitor": "ndcg@10", "early_stopping": vars(cfg)}; (out_dir / "config.json").write_text(json.dumps(config, indent=2))
     (out_dir / "split.json").write_text(json.dumps(data.split_info, indent=2))
     rows, histories = [], {}
     for name in args.models:
@@ -137,9 +137,9 @@ def main(argv=None):
         test = evaluate(model, data, cfg, device, data.test, collect=True); pred = test.pop("predictions"); np.savez(model_dir / "test_predictions.npz", **pred); test_meta = dict(test, checkpoint_path=str(model_dir / "best.pt"), checkpoint_sha256=checkpoint_sha); (model_dir / "test_metrics.json").write_text(json.dumps(test_meta, indent=2))
         rows.append({"model": name, "group": group(name), "control": None, "best_epoch": best["epoch"], "epochs_trained": len(history), "train_steps": history[-1]["global_step"], "test_auc": test["auc"], "test_mrr": test["mrr"], "test_ndcg@5": test["ndcg@5"], "test_ndcg@10": test["ndcg@10"], "delta_auc": None, "delta_mrr": None, "delta_ndcg@5": None, "delta_ndcg@10": None, "params": params(model), "train_s": train_s, "infer_impr/s": test["infer_impr_per_s"]})
         del model; torch.cuda.empty_cache() if torch.cuda.is_available() else None
-    by_name = {r["model"]: r for r in rows}; ref = by_name["supermodel"]
+    by_name = {r["model"]: r for r in rows}; ref = by_name.get("supermodel")
     for row in rows:
-        if row["group"] == "super-ablation": row["control"] = "supermodel"; row["delta_auc"] = row["test_auc"] - ref["test_auc"]; row["delta_mrr"] = row["test_mrr"] - ref["test_mrr"]; row["delta_ndcg@5"] = row["test_ndcg@5"] - ref["test_ndcg@5"]; row["delta_ndcg@10"] = row["test_ndcg@10"] - ref["test_ndcg@10"]
+        if row["group"] == "super-ablation" and ref: row["control"] = "supermodel"; row["delta_auc"] = row["test_auc"] - ref["test_auc"]; row["delta_mrr"] = row["test_mrr"] - ref["test_mrr"]; row["delta_ndcg@5"] = row["test_ndcg@5"] - ref["test_ndcg@5"]; row["delta_ndcg@10"] = row["test_ndcg@10"] - ref["test_ndcg@10"]
         elif row["model"] == "supermodel": row["delta_auc"] = row["delta_mrr"] = row["delta_ndcg@5"] = row["delta_ndcg@10"] = 0.; row["control"] = "—"
         else: row["control"] = "—"
     rows.sort(key=lambda r: r["test_ndcg@10"], reverse=True); plot(histories, out_dir)
@@ -154,12 +154,13 @@ def verify(out_dir):
     for filename in ("config.json", "split.json", "results.json", "results.md", "history.json", "val_auc_vs_epoch.png", "val_ndcg10_vs_epoch.png"):
         assert (out_dir / filename).exists() and (out_dir / filename).stat().st_size > 0, f"missing artifact: {out_dir / filename}"
     results = json.loads((out_dir / "results.json").read_text()); history = json.loads((out_dir / "history.json").read_text())
-    assert len(results["rows"]) == len(FINAL_MODELS) and {r["model"] for r in results["rows"]} == set(FINAL_MODELS)
+    names = results["models"]
+    assert len(results["rows"]) == len(names) and {r["model"] for r in results["rows"]} == set(names)
     assert all(r["test_ndcg@10"] >= results["rows"][i + 1]["test_ndcg@10"] for i, r in enumerate(results["rows"][:-1]))
-    assert set(history["models"]) == set(FINAL_MODELS)
+    assert set(history["models"]) == set(names)
     split = json.loads((out_dir / "split.json").read_text())
     assert split["train_day_max"] < split["validation_day_min"] and not (set(split["train_days"]) & set(split["validation_days"]))
-    for name in FINAL_MODELS:
+    for name in names:
         d = out_dir / "models" / name
         for filename in ("best.pt", "best_meta.json", "test_metrics.json", "test_predictions.npz"):
             assert (d / filename).exists() and (d / filename).stat().st_size > 0, f"missing {name}/{filename}"
@@ -173,7 +174,7 @@ def verify(out_dir):
         for m in ("auc", "mrr", "ndcg@5", "ndcg@10"):
             assert np.isclose(recomputed[m], test_meta[m], atol=1e-6), f"{name}: {m} mismatch"
         print(f"✅ verified {name}")
-    print(f"✅ V10: {len(FINAL_MODELS)} rows, chronological split, epoch curves, and checkpoint/test artifacts verified")
+    print(f"✅ V10: {len(names)} rows, chronological split, epoch curves, and checkpoint/test artifacts verified")
     print((out_dir / "results.md").read_text())
 
 
