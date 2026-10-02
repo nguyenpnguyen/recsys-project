@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>News Recommendation · V10</title>
+<style>
+  :root { --bg:#fff; --fg:#1a1a1a; --mut:#666; --line:#ddd; --acc:#2563eb; --hl:#e8f5e9; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16181d; --fg:#e8e8e8; --mut:#999; --line:#333; --acc:#6ea0ff; --hl:#1f3a28; } }
+  body { margin:0 auto; max-width:1200px; padding:16px; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,sans-serif; }
+  h1 { margin:0 0 4px; } .mut { color:var(--mut); font-size:13px; }
+  nav { display:flex; gap:4px; border-bottom:1px solid var(--line); margin:12px 0; }
+  nav button { border:0; background:none; color:var(--fg); padding:8px 14px; cursor:pointer; border-bottom:2px solid transparent; font:inherit; }
+  nav button.on { border-color:var(--acc); color:var(--acc); }
+  section { display:none; } section.on { display:block; }
+  table { border-collapse:collapse; width:100%; font-size:14px; } th,td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); }
+  .scroll { overflow-x:auto; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin:8px 0; } .row > * { flex:0 0 auto; }
+  .grow { flex:1 1 240px !important; }
+  input,select,button { font:inherit; padding:5px 8px; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:4px; }
+  button { cursor:pointer; } button:disabled { opacity:.5; cursor:default; }
+  label { display:block; font-size:13px; color:var(--mut); }
+  .cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+  img { max-width:100%; }
+  .err { color:#c62828; } .info { background:var(--hl); padding:8px 12px; border-radius:4px; margin:8px 0; }
+  .yes { background:var(--hl); }
+  ul.list { list-style:none; padding:0; margin:4px 0; } ul.list li { display:flex; justify-content:space-between; gap:8px; padding:3px 0; border-bottom:1px solid var(--line); }
+  .models label { display:inline-block; margin-right:12px; color:var(--fg); }
+</style>
+</head>
+<body>
+<h1>News Recommendation · V10</h1>
+<div class="mut">Demo nghiên cứu cục bộ trên MIND-small · dữ liệu lưu trữ năm 2019</div>
+<nav>
+  <button data-tab="overview" class="on">Tổng quan</button>
+  <button data-tab="replay">Phát lại impression</button>
+  <button data-tab="interactive">Thử lịch sử</button>
+</nav>
+
+<section id="overview" class="on">
+  <h2>Benchmark V10 trên MIND-small</h2>
+  <div class="mut">Bảng là kết quả test lưu từ V10; biểu đồ là learning curve trên validation.</div>
+  <div class="scroll"><table id="ov-table"></table></div>
+  <div class="cols">
+    <figure><img src="/charts/val_auc_vs_epoch.png" alt="Validation AUC theo epoch"><figcaption class="mut">Validation AUC theo epoch</figcaption></figure>
+    <figure><img src="/charts/val_ndcg10_vs_epoch.png" alt="Validation nDCG@10 theo epoch"><figcaption class="mut">Validation nDCG@10 theo epoch</figcaption></figure>
+  </div>
+  <p><b>Nhóm model:</b> baseline truyền thống gồm NRMS, NAML, Fastformer, CAUM và LightGCN; LLMEncCA là thí nghiệm encoding; Supermodel và <code>super_no_*</code> là model đề xuất/ablation.</p>
+  <div class="info">MIND-small là dữ liệu lưu trữ năm 2019. Demo xếp hạng trong tập ứng viên đã cho, không lấy tin trực tuyến.</div>
+</section>
+
+<section id="replay">
+  <h2>Phát lại một impression của MINDsmall_dev</h2>
+  <div class="row">
+    <div><label for="rp-id">Impression ID</label><input id="rp-id" type="number" step="1"></div>
+    <button id="rp-random">Chọn ngẫu nhiên</button>
+  </div>
+  <div id="rp-err" class="err"></div>
+  <div id="rp-info" class="mut"></div>
+  <details><summary id="rp-hist-sum">Lịch sử đọc</summary><div class="scroll"><table id="rp-hist"></table></div></details>
+  <p class="models"><label>Model so sánh:</label><span id="rp-models"></span></p>
+  <button id="rp-reveal">Hiện click thực tế</button>
+  <div class="scroll"><table id="rp-cands"></table></div>
+  <div class="row mut"><button id="rp-prev">‹</button><span id="rp-page"></span><button id="rp-next">›</button></div>
+  <div id="rp-metrics-note" class="mut"></div>
+  <div class="scroll"><table id="rp-metrics"></table></div>
+</section>
+
+<section id="interactive">
+  <h2>Thử lịch sử và tập ứng viên</h2>
+  <div class="mut">Tất cả bài lấy từ kho MIND-small. Kết quả là xếp hạng minh họa, không có nhãn click để đánh giá.</div>
+  <div class="row">
+    <div class="grow"><label for="it-q">Tìm theo tiêu đề</label><input id="it-q" style="width:100%" placeholder="Nhập ít nhất 2 ký tự"></div>
+    <div><label for="it-cat">Chủ đề</label><select id="it-cat"></select></div>
+  </div>
+  <div id="it-hint" class="mut"></div>
+  <div class="row" id="it-search-row" hidden>
+    <div class="grow"><label for="it-res">Kết quả tìm kiếm</label><select id="it-res" style="width:100%"></select></div>
+    <button id="it-add-h">Thêm vào lịch sử</button>
+    <button id="it-add-c">Thêm vào ứng viên</button>
+    <button id="it-more">Tải thêm</button>
+  </div>
+  <div class="cols">
+    <div><b id="it-h-title"></b><ul class="list" id="it-h"></ul></div>
+    <div><b id="it-c-title"></b><ul class="list" id="it-c"></ul></div>
+  </div>
+  <button id="it-rank">Xếp hạng bằng LLMEncCA</button> <span id="it-note" class="mut"></span>
+  <div id="it-err" class="err"></div>
+  <div class="scroll"><table id="it-result"></table></div>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const label = a => `${a.title} · ${a.category}/${a.subcategory} [${a.id}]`;
+const api = async (url, opts) => { const r = await fetch(url, opts); const j = await r.json(); if (j.error) throw new Error(j.error); return j; };
+const table = (el, head, rows, cls = () => '') => {
+  el.innerHTML = rows.length ? `<tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr>` +
+    rows.map(r => `<tr class="${cls(r)}">${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('') : '';
+};
+let meta, reveal = false, tab = 'overview';
+const PAGE = 20;
+const saved = (() => { try { return JSON.parse(localStorage.getItem('demo-v10')) || {}; } catch { return {}; } })();
+const save = () => { try { localStorage.setItem('demo-v10', JSON.stringify({
+  tab, id: $('rp-id').value, models: selectedModels(), history: state.history, candidates: state.candidates })); } catch {} };
+const show = name => {
+  tab = name;
+  document.querySelectorAll('nav button, section').forEach(e => e.classList.remove('on'));
+  document.querySelector(`nav [data-tab=${name}]`).classList.add('on'); $(name).classList.add('on'); save();
+};
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => show(b.dataset.tab));
+
+// Overview
+const OV = [["model","Model"],["group","Nhóm"],["best_epoch","Epoch tốt nhất"],["test_auc","Test AUC"],["test_mrr","Test MRR"],
+  ["test_ndcg@5","Test nDCG@5"],["test_ndcg@10","Test nDCG@10"],["params","Tham số"],["train_s","Train (s)"],["infer_impr/s","Impression/s"]];
+const fmt = v => typeof v === 'number' && !Number.isInteger(v) ? +v.toFixed(4) : v;
+
+// Replay
+const selectedModels = () => [...document.querySelectorAll('#rp-models input:checked')].map(i => i.value);
+let cands = [], page = 0;
+function renderCands() {
+  const models = selectedModels(), pages = Math.max(1, Math.ceil(cands.length / PAGE));
+  page = Math.min(page, pages - 1);
+  const head = ['Bài báo', 'Chủ đề', 'News ID', ...models.map(m => m + ' rank'), ...(reveal ? ['Click thực tế'] : [])];
+  table($('rp-cands'), head, cands.slice(page * PAGE, (page + 1) * PAGE).map(c =>
+    [c.title, c.category, c.id, ...models.map(m => c.ranks[m]), ...(reveal ? [c.clicked ? 'Có' : 'Không'] : [])]),
+    r => reveal && r[r.length - 1] === 'Có' ? 'yes' : '');
+  $('rp-page').textContent = `Trang ${page + 1}/${pages} · ${cands.length} ứng viên`;
+  $('rp-prev').disabled = page === 0; $('rp-next').disabled = page >= pages - 1;
+}
+$('rp-prev').onclick = () => { page--; renderCands(); };
+$('rp-next').onclick = () => { page++; renderCands(); };
+async function replay() {
+  save();
+  $('rp-err').textContent = '';
+  const models = selectedModels();
+  if (!models.length) { $('rp-err').textContent = 'Chọn ít nhất một model để hiển thị thứ hạng.'; return; }
+  try {
+    const d = await api(`/api/replay?id=${$('rp-id').value}&models=${models.join(',')}&reveal=${reveal ? 1 : 0}`);
+    $('rp-info').textContent = `Impression ${d.impression_id} · thời điểm ${d.timestamp} · ${d.candidates.length} ứng viên`;
+    $('rp-hist-sum').textContent = `Lịch sử đọc (${d.history_total} bài)`;
+    table($('rp-hist'), ['#', 'Bài đã đọc'], d.history.map((a, i) => [i + 1, label(a)]));
+    cands = d.candidates; renderCands();
+    $('rp-metrics-note').textContent = reveal ? 'Metric tính trên impression này; nhãn không tham gia tạo thứ hạng.' : '';
+    table($('rp-metrics'), ['Model', 'MRR', 'nDCG@5', 'nDCG@10'],
+      (d.metrics || []).map(m => [m.Model, fmt(m.MRR), fmt(m['nDCG@5']), fmt(m['nDCG@10'])]));
+  } catch (e) { $('rp-err').textContent = e.message; }
+}
+const loadReplay = () => { reveal = false; page = 0; replay(); };
+$('rp-id').onchange = loadReplay;
+$('rp-models').onchange = replay;
+$('rp-random').onclick = async () => { $('rp-id').value = (await api('/api/random')).id; loadReplay(); };
+$('rp-reveal').onclick = () => { reveal = true; replay(); };
+
+// Interactive
+const state = { history: [], candidates: [], arts: {}, results: [] };
+function renderLists() {
+  for (const [key, el, title, lbl] of [['history', 'it-h', 'it-h-title', 'Lịch sử'], ['candidates', 'it-c', 'it-c-title', 'Ứng viên']]) {
+    $(title).textContent = `${lbl} (${state[key].length}/50)`;
+    $(el).innerHTML = state[key].length ? state[key].map(id =>
+      `<li><span>${esc(label(state.arts[id]))}</span><button data-k="${key}" data-id="${id}">Xóa</button></li>`).join('')
+      : `<li class="mut">${lbl}: chưa chọn bài.</li>`;
+  }
+  const h = state.history, c = state.candidates;
+  const can = h.length >= 1 && h.length <= 50 && c.length >= 2 && c.length <= 50;
+  $('it-rank').disabled = !can;
+  $('it-note').textContent = can ? '' : 'Chọn 1–50 bài trong lịch sử và 2–50 bài ứng viên để bật xếp hạng.';
+  $('it-result').innerHTML = ''; $('it-err').textContent = '';
+  updateAddButtons(); save();
+}
+function updateAddButtons() {
+  const id = $('it-res').value, h = state.history, c = state.candidates, used = h.includes(id) || c.includes(id);
+  $('it-add-h').disabled = used || h.length >= 50;
+  $('it-add-c').disabled = used || c.length >= 50;
+}
+['it-h', 'it-c'].forEach(el => $(el).onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state[b.dataset.k] = state[b.dataset.k].filter(i => i !== b.dataset.id); renderLists();
+});
+const add = key => { state[key].push($('it-res').value); renderLists(); };
+$('it-add-h').onclick = () => add('history');
+$('it-add-c').onclick = () => add('candidates');
+$('it-res').onchange = updateAddButtons;
+let timer;
+async function search() {
+  const q = $('it-q').value;
+  if (q.trim().length < 2) {
+    $('it-search-row').hidden = true;
+    $('it-hint').textContent = `Tìm kiếm trong title của ${meta.n_articles.toLocaleString('vi-VN')} bài; abstract được giữ trong catalog để tham khảo.`;
+    return;
+  }
+  searchOffset = 0; $('it-res').innerHTML = ''; await loadMore();
+}
+let searchOffset = 0;
+async function loadMore() {
+  const { items, total } = await api(`/api/search?q=${encodeURIComponent($('it-q').value)}&category=${encodeURIComponent($('it-cat').value)}&offset=${searchOffset}`);
+  items.forEach(a => { state.arts[a.id] = a; });
+  $('it-res').insertAdjacentHTML('beforeend', items.map(a => `<option value="${a.id}">${esc(label(a))}</option>`).join(''));
+  searchOffset += items.length;
+  $('it-search-row').hidden = !total;
+  $('it-more').hidden = searchOffset >= total;
+  $('it-hint').textContent = total ? `${searchOffset}/${total} kết quả` : 'Không có bài phù hợp với tiêu đề và chủ đề đã chọn.';
+  updateAddButtons();
+}
+$('it-more').onclick = loadMore;
+$('it-q').oninput = () => { clearTimeout(timer); timer = setTimeout(search, 250); };
+$('it-cat').onchange = search;
+$('it-rank').onclick = async () => {
+  $('it-err').textContent = ''; $('it-rank').disabled = true;
+  try {
+    const { scores } = await api('/api/rank', { method: 'POST', body: JSON.stringify({ history: state.history, candidates: state.candidates }) });
+    const order = scores.map((s, i) => i).sort((a, b) => scores[b] - scores[a]);
+    table($('it-result'), ['Rank', 'Bài báo', 'Chủ đề', 'Score'],
+      order.map((p, r) => { const a = state.arts[state.candidates[p]]; return [r + 1, a.title, a.category, fmt(scores[p])]; }));
+  } catch (e) { $('it-err').textContent = e.message; }
+  $('it-rank').disabled = false;
+};
+
+(async () => {
+  try { meta = await api('/api/meta'); } catch (e) { document.body.insertAdjacentHTML('beforeend', `<p class="err">${esc(e.message)}</p>`); return; }
+  table($('ov-table'), OV.map(c => c[1]), meta.overview.map(r => OV.map(([k]) => fmt(r[k]))));
+  $('rp-models').innerHTML = meta.models.map(m =>
+    `<label><input type="checkbox" value="${esc(m)}" ${meta.default_models.includes(m) ? 'checked' : ''}> ${esc(m)}</label>`).join('');
+  const [lo, hi] = meta.impression_range;
+  $('rp-id').min = lo; $('rp-id').max = hi; $('rp-id').value = lo;
+  $('it-cat').innerHTML = ['<option value="">Tất cả</option>', ...meta.categories.map(c => `<option>${esc(c)}</option>`)].join('');
+  if (saved.id) $('rp-id').value = saved.id;
+  if (saved.models) document.querySelectorAll('#rp-models input').forEach(i => { i.checked = saved.models.includes(i.value); });
+  const ids = [...new Set([...(saved.history || []), ...(saved.candidates || [])])];
+  if (ids.length) {
+    (await api('/api/articles?ids=' + ids.join(','))).forEach(a => { state.arts[a.id] = a; });
+    state.history = (saved.history || []).filter(i => state.arts[i]);
+    state.candidates = (saved.candidates || []).filter(i => state.arts[i]);
+  }
+  renderLists(); search(); loadReplay();
+  if (saved.tab) show(saved.tab);
+})();
+</script>
+</body>
+</html>

@@ -1,9 +1,14 @@
 """Small integration checks for the local V10 demo."""
 from pathlib import Path
+from threading import Thread
+from http.server import ThreadingHTTPServer
+import json
 import unittest
+import urllib.request
 
 import numpy as np
-from streamlit.testing.v1 import AppTest
+
+import demo_app
 
 from demo_core import (
     DEFAULT_REPLAY_MODELS,
@@ -68,14 +73,21 @@ class DemoCoreTests(unittest.TestCase):
 
 
 class DemoAppTests(unittest.TestCase):
-    def test_app_renders_and_random_picker_runs(self):
-        app = AppTest.from_file(str(HERE / "demo_app.py"), default_timeout=30).run()
-        self.assertFalse(app.exception)
-        self.assertEqual([tab.label for tab in app.tabs], ["Tổng quan", "Phát lại impression", "Thử lịch sử"])
-        app.button[0].click().run()
-        self.assertFalse(app.exception)
-        self.assertGreaterEqual(app.number_input[0].value, 1)
-        self.assertLessEqual(app.number_input[0].value, 73152)
+    def test_http_api(self):
+        demo_app.Handler.demo = demo_app.Demo()
+        server = ThreadingHTTPServer(("127.0.0.1", 0), demo_app.Handler)
+        Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        get = lambda path: urllib.request.urlopen(base + path).read()
+        try:
+            self.assertIn(b"<title>", get("/"))
+            meta = json.loads(get("/api/meta"))
+            rid = json.loads(get("/api/random"))["id"]
+            models = ",".join(meta["default_models"])
+            data = json.loads(get(f"/api/replay?id={rid}&models={models}&reveal=1"))
+            self.assertTrue(data["candidates"] and data["metrics"])
+        finally:
+            server.shutdown()
 
 
 if __name__ == "__main__":

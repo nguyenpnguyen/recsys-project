@@ -19,7 +19,7 @@ Tạo một demo nghiên cứu chạy cục bộ trên MIND-small bằng kết q
 | --- | --- |
 | `PLAN_DEMO_V10.md` | Đặc tả, giới hạn và tiêu chí nghiệm thu của demo. |
 | `demo_core.py` | Đọc catalog/impression, xác minh mapping và artifact, cung cấp API nội bộ để phát lại ranking và chạy LLMEncCA. Không chứa UI. |
-| `demo_app.py` | Ứng dụng Streamlit với màn hình Tổng quan, Phát lại và Tương tác. |
+| `demo_app.py` | Server HTTP stdlib + `index.html` với màn hình Tổng quan, Phát lại và Tương tác. |
 | `test_demo.py` | Kiểm tra dữ liệu, đối chiếu score checkpoint với score V10 và kiểm tra input sai bằng `unittest`. |
 | `requirements.txt` | Các dependency trực tiếp và phiên bản đã xác minh trên Python 3.12. |
 
@@ -72,10 +72,10 @@ Prediction NPZ phải có `impression_ids`, `offsets`, `candidate_news_indices`,
 ```bash
 uv venv --python 3.12 .venv-demo
 uv pip install --python .venv-demo/bin/python -r inference/requirements.txt
-.venv-demo/bin/python -m streamlit run inference/demo_app.py --server.address 127.0.0.1
+.venv-demo/bin/python inference/demo_app.py
 ```
 
-Streamlit chỉ bind loopback; không công khai app trên mạng LAN hoặc Internet.
+Server chỉ bind loopback; không công khai app trên mạng LAN hoặc Internet.
 
 ## Kiểm tra và tiêu chí hoàn thành
 
@@ -83,7 +83,7 @@ Streamlit chỉ bind loopback; không công khai app trên mạng LAN hoặc Int
 - Có đúng 73.152 impression duy nhất; catalog news có đúng 65.238 ID theo cùng thứ tự embedding; predictions khớp behaviors và cùng candidate slate.
 - Trên một số impression dev có history, suy luận CPU từ checkpoint LLMEncCA khớp score lưu V10 trong sai số số học `atol=5e-4`, `rtol=1e-4` và cho cùng thứ hạng.
 - Kiểm tra ID không tồn tại, history rỗng, bài trùng, history/candidate giao nhau, giới hạn số bài và artifact thiếu/sai hash.
-- `python -m streamlit run demo_app.py` mở được cả ba màn hình; không cần Kaggle, GPU, train lại hoặc kết nối mạng ở thời điểm chạy.
+- `python demo_app.py` mở được cả ba màn hình; không cần Kaggle, GPU, train lại hoặc kết nối mạng ở thời điểm chạy.
 
 ## Giả định
 

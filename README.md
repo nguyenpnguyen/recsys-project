@@ -5,7 +5,7 @@ Benchmark 15 mô hình gợi ý tin tức trên MIND-small: 5 baseline (NRMS, NA
 ```
 training/    script train + đánh giá, notebook chạy trên Kaggle
 dataset/     MIND-small (không commit)
-inference/   demo Streamlit: tổng quan benchmark, phát lại impression, xếp hạng tương tác
+inference/   demo HTML (stdlib server): tổng quan benchmark, phát lại impression, xếp hạng tương tác
 ```
 
 ## Dữ liệu
@@ -32,6 +32,13 @@ cd training
     --news-emb ../inference/artifacts/news_emb.npz --out ../inference/artifacts/v10_final
 ```
 
+Cell cuối của notebook upload `news_emb.npz` và `v10_final/` lên Hugging Face Hub (`nguyenpn/recsys-artifacts`). Trên Kaggle thêm Secret `HF_TOKEN` (quyền write); local chạy `hf auth login` trước. Upload thủ công:
+
+```bash
+hf upload nguyenpn/recsys-artifacts inference/artifacts/news_emb.npz news_emb.npz
+hf upload nguyenpn/recsys-artifacts inference/artifacts/v10_final v10_final
+```
+
 `kaggle_run.ipynb` cũng chạy được local từ thư mục `training/` với cùng các đường dẫn trên.
 
 | File | Vai trò |
@@ -55,7 +62,7 @@ inference/artifacts/v10_final/{results.json, config.json, *.png, models/<name>/.
 uv venv --python 3.12 inference/.venv
 uv pip install --python inference/.venv/bin/python -r inference/requirements.txt
 inference/.venv/bin/hf download nguyenpn/recsys-artifacts --local-dir inference/artifacts
-inference/.venv/bin/python -m streamlit run inference/demo_app.py --server.address 127.0.0.1
+inference/.venv/bin/python inference/demo_app.py   # http://127.0.0.1:8000
 cd inference && .venv/bin/python -m unittest test_demo.py   # test
 ```
 
